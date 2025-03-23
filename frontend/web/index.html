@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Item List</title>
+    <script src="/static/app.js" defer></script>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+        }
+        #notification {
+            margin-top: 10px;
+            color: green;
+        }
+    </style>
+</head>
+<body>
+<h1>Items</h1>
+<table id="items-table">
+    <thead>
+    <tr><th>ID</th><th>Name</th></tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<h2>Add New Item</h2>
+<input type="text" id="item-name" placeholder="Item name" />
+<button id="add-button">Add</button>
+
+<div id="notification"></div>
+</body>
+</html>
