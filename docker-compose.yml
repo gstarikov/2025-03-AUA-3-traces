@@ -1,0 +1,114 @@
+services:
+  pg:
+    image: postgres:17.4-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d db" ]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+
+  app:
+    build:
+      context: .
+      dockerfile_inline: |
+        # Use the official Golang image for building
+        FROM golang:1.24-alpine3.21 AS builder
+        WORKDIR /app
+        VOLUME /go/pkg/mod
+        VOLUME /root/.cache/go-build
+        COPY . .
+        RUN go mod tidy && go build -o app app.go
+        
+        # Use a minimal base image for running
+        FROM alpine:3.21
+        WORKDIR /root/
+        RUN apk add --no-cache curl
+        COPY --from=builder /app/app .
+        RUN chmod +x /root/app
+        CMD ["/root/app"]
+    depends_on:
+      pg:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    environment:
+      PG: postgres://user:pass@pg:5432/db?sslmode=disable
+      OTEL: jaeger:4317
+    ports:
+      - "8080:8080"
+    volumes:
+      - go_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+      - logs:/tmp/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/self-check"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+
+  vm:
+    image: victoriametrics/victoria-metrics:v1.91.0
+    ports:
+      - "8428:8428"
+    command:
+      - "-selfScrapeInterval=10s"
+      - "-promscrape.config=/etc/prometheus/prometheus.yml"
+    volumes:
+      - vm_data:/victoriametrics
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - vm
+    volumes:
+      - ./datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - logs:/tmp/app
+      - ./promtail.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:16686" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  go_cache:
+  go_build_cache:
+  vm_data:
+  logs:
