@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgx/v5 v5.7.3
+	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/pgx-contrib/pgxotel v0.0.0-20250305221233-5494d6f9d208
 	github.com/pgx-contrib/pgxslog v0.0.0-20250321072253-85adfed15938
 	github.com/prometheus/client_golang v1.21.1
@@ -20,6 +21,7 @@ require (
 replace github.com/pgx-contrib/pgxslog => github.com/gstarikov/pgxslog v0.0.0-20250323201734-a5e222c1a7e2
 
 require (
+	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

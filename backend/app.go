@@ -73,7 +73,7 @@ var (
 		MaxAge:     30,
 		Compress:   false,
 	}, nil))
-	tracer     = otel.Tracer("my-app")
+	tracer     = otel.Tracer("app")
 	propagator = otel.GetTextMapPropagator()
 )
 
@@ -94,6 +94,7 @@ func contextWithLogger(ctx context.Context, l *slog.Logger) context.Context {
 
 func initTracer() func(context.Context) error {
 	ctx := context.Background()
+
 	exporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithInsecure(),
 		otlptracegrpc.WithEndpoint(os.Getenv("OTEL")),
@@ -111,6 +112,9 @@ func initTracer() func(context.Context) error {
 		)),
 	)
 	otel.SetTracerProvider(tp)
+
+	otel.SetTextMapPropagator(otelpropagation.TraceContext{})
+
 	return tp.Shutdown
 }
 
@@ -167,6 +171,8 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		)
 		ctx = contextWithLogger(ctx, reqLogger)
 		r = r.WithContext(ctx)
+
+		reqLogger.Info("Incoming traceparent", "traceparent", r.Header.Get("traceparent"))
 
 		propagator.Inject(ctx, otelpropagation.HeaderCarrier(w.Header()))
 
@@ -289,8 +295,6 @@ func main() {
 		}
 	}()
 
-	otel.SetTextMapPropagator(otelpropagation.TraceContext{})
-
 	dbConfig, err := pgxpool.ParseConfig(os.Getenv("PG"))
 	if err != nil {
 		logger.Error("Failed to parse DB config", "error", err)
@@ -316,14 +320,20 @@ func main() {
 	r.Use(requestIDMiddleware, loggingMiddleware)
 
 	r.Handle("/metrics", promhttp.Handler())
-	r.Handle("/self-check", otelhttp.NewHandler(instrumentHandler(srvc.selfCheck, "/self-check"), "self-check")).Methods(http.MethodGet)
-	r.Handle("/items", otelhttp.NewHandler(instrumentHandler(srvc.addItem, "/items"), "add-item")).Methods(http.MethodPost)
-	r.Handle("/items/{id}", otelhttp.NewHandler(instrumentHandler(srvc.getItem, "/items/{id}"), "get-item")).Methods(http.MethodGet)
-	r.Handle("/items", otelhttp.NewHandler(instrumentHandler(srvc.getAllItems, "/items"), "get-all-items")).Methods(http.MethodGet)
+	r.Handle("/self-check", instrumentHandler(srvc.selfCheck, "/self-check")).Methods(http.MethodGet)
+	r.Handle("/items", instrumentHandler(srvc.addItem, "/items")).Methods(http.MethodPost)
+	r.Handle("/items/{id}", instrumentHandler(srvc.getItem, "/items/{id}")).Methods(http.MethodGet)
+	r.Handle("/items", instrumentHandler(srvc.getAllItems, "/items")).Methods(http.MethodGet)
+
+	wrapperHandler := otelhttp.NewHandler(r, "http request",
+		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+	)
 
 	s := &http.Server{
 		Addr:           ":8080",
-		Handler:        otelhttp.NewHandler(r, "http request"),
+		Handler:        wrapperHandler,
 		ReadTimeout:    1 * time.Second,
 		WriteTimeout:   1 * time.Second,
 		MaxHeaderBytes: 1 << 10,

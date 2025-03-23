@@ -26,7 +26,7 @@ services:
         VOLUME /go/pkg/mod
         VOLUME /root/.cache/go-build
         COPY . .
-        RUN go mod tidy && go build -o app app.go
+        RUN go mod tidy && go build -o app backend/app.go
         
         # Use a minimal base image for running
         FROM alpine:3.21
@@ -48,9 +48,48 @@ services:
     volumes:
       - go_cache:/go/pkg/mod
       - go_build_cache:/root/.cache/go-build
-      - logs:/tmp/app
+      - logs_app:/tmp/app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/self-check"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+
+  web:
+    build:
+      context: .
+      dockerfile_inline: |
+        # Use the official Golang image for building
+        FROM golang:1.24-alpine3.21 AS builder
+        WORKDIR /app
+        VOLUME /go/pkg/mod
+        VOLUME /root/.cache/go-build
+        COPY . .
+        RUN go mod tidy && go build -o app frontend/web.go
+        
+        # Use a minimal base image for running
+        FROM alpine:3.21
+        WORKDIR /root/
+        RUN apk add --no-cache curl
+        COPY --from=builder /app/app .
+        COPY frontend/web /web
+        RUN chmod +x /root/app
+        CMD ["/root/app"]
+    depends_on:
+      pg:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    environment:
+      OTEL: jaeger:4317
+    ports:
+      - "8081:8081"
+    volumes:
+      - go_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+      - logs_web:/tmp/web
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/self-check"]
       interval: 1s
       timeout: 1s
       retries: 1
@@ -81,7 +120,8 @@ services:
   promtail:
     image: grafana/promtail:latest
     volumes:
-      - logs:/tmp/app
+      - logs_app:/tmp/app
+      - logs_web:/tmp/web
       - ./promtail.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     depends_on:
@@ -111,4 +151,5 @@ volumes:
   go_cache:
   go_build_cache:
   vm_data:
-  logs:
+  logs_app:
+  logs_web:
